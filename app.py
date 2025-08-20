@@ -123,6 +123,32 @@ async def handle_alert(
         not_1h = not_last = not_dpct = 0.0
         vol_trend = f"Vol: erreur ({e})"
         not_trend = ""
+    
+    # ---- Funding rate (actuel)
+    try:
+        raw_funding = await bybit_api.get_current_funding_rate(http, symbol)
+        # Bybit renvoie une fraction (ex: 0.0034 => 0.34%)
+        funding_pct = raw_funding * 100.0
+        funding_bp = funding_pct * 100.0              # basis points (optionnel)
+        funding_str = f"{funding_pct:+.2f}% ({funding_bp:+.0f} bp)"
+    except Exception as e:
+        funding_str = "n/a"
+        logging.warning("funding fetch failed for %s: %s", symbol, e)
+
+
+    # ---- Position dans l'historique (1D all-time scan)
+    try:
+        pmin, pmax, plast, ts_min, ts_max = await bybit_api.get_alltime_range(http, symbol)
+        ratio, label = bybit_api.historical_position_label(plast, pmin, pmax)
+        # ratio en %
+        pos_pct = ratio * 100.0
+    except Exception as e:
+        pmin = pmax = plast = 0.0
+        pos_pct = 0.0
+        label = "inconnu"
+        logging.warning("all-time range failed for %s: %s", symbol, e)
+    
+    
 
     # ---- (Optionnel) Filtrer selon OI
     if cfg.require_oi_confirm:
@@ -140,6 +166,7 @@ async def handle_alert(
         f"{oi_trend} — 1h: <code>{oi_1h:.0f}</code> → now: <code>{oi_last:.0f}</code>\n"
         f"{vol_trend} — 5m: <code>{vol_1h:.0f}</code> → now: <code>{vol_last:.0f}</code>\n"
         f"{not_trend}\n"
+        f"Funding: <b>{funding_str}</b>  |  Position historique: <b>{pos_pct:.1f}%</b> ({label})\n"
         f"<a href=\"{coinglass_url}\">🔗 Coinglass</a> | "
         f"<a href=\"{exchange_url}\">🔗 Bybit</a>"
     )

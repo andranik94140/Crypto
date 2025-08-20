@@ -111,3 +111,121 @@ async def get_volume_1h_change(client: httpx.AsyncClient, symbol: str) -> tuple[
     notional_delta_pct = ((notional_last - notional_1h_ago) / notional_1h_ago * 100.0) if notional_1h_ago else 0.0
 
     return vol_1h_ago, vol_last, vol_delta_pct, notional_1h_ago, notional_last, notional_delta_pct
+
+# ===== Funding rate (actuel) =====
+async def get_current_funding_rate(client: httpx.AsyncClient, symbol: str) -> float:
+    """
+    Lit le funding rate actuel pour un perpetual 'symbol' (Bybit v5).
+    Source: /v5/market/tickers (category=linear, symbol=...)
+    """
+    params = {"category": "linear", "symbol": symbol}
+    r = await client.get(f"{BASE}/v5/market/tickers", params=params)
+    r.raise_for_status()
+    data = r.json()
+    rows = (data.get("result") or {}).get("list") or []
+    if not rows:
+        return 0.0
+    fr = rows[0].get("fundingRate")
+    try:
+        return float(fr)
+    except Exception:
+        return 0.0
+
+
+# ===== Position dans l'historique (all-time) =====
+async def get_alltime_range(
+    client: httpx.AsyncClient,
+    symbol: str,
+    max_days: int = 4000,
+) -> tuple[float, float, float, int, int]:
+    """
+    Retourne (min_price, max_price, last_close, ts_min, ts_max)
+    en scannant des klines 1D (interval='D') aussi loin que possible.
+    Pagination par fenêtre: on recule de bloc en bloc via paramètres start/end.
+
+    NOTE: S'il n'y a pas d'API de pagination complète dispo côté Bybit,
+    on scanne par morceaux de 1000 jours max (selon limites) jusqu'à 'max_days'.
+    """
+    import math, time
+
+    now_ms = int(time.time() * 1000)
+    # Fenêtre de scan (en jours) par itération — ajuste si besoin
+    window_days = 900  # ~2.5 ans par bloc
+    day_ms = 24 * 60 * 60 * 1000
+
+    all_min = float("inf")
+    all_max = 0.0
+    last_close = 0.0
+    ts_min = 0
+    ts_max = 0
+
+    scanned_days = 0
+    end = now_ms
+
+    while scanned_days < max_days:
+        start = max(0, end - window_days * day_ms)
+        params = {
+            "category": "linear",
+            "symbol": symbol,
+            "interval": "D",
+            "start": start,
+            "end": end,
+            "limit": 1000,
+        }
+        r = await client.get(f"{BASE}/v5/market/kline", params=params)
+        r.raise_for_status()
+        data = r.json()
+        rows = (data.get("result") or {}).get("list") or []
+        if not rows:
+            break
+
+        # Format attendu: [start, open, high, low, close, volume, turnover]
+        # Trie par timestamp croissant (sécurité)
+        try:
+            rows.sort(key=lambda x: int(x[0]))
+        except Exception:
+            pass
+
+        # Met à jour min/max et garde le tout dernier close si non défini
+        for row in rows:
+            try:
+                ts = int(row[0])
+                o = float(row[1]); h = float(row[2]); l = float(row[3]); c = float(row[4])
+            except Exception:
+                continue
+            if l < all_min:
+                all_min = l
+                ts_min = ts
+            if h > all_max:
+                all_max = h
+                ts_max = ts
+            last_close = c  # progresse jusqu'au plus récent du bloc
+
+        # Prépare le bloc précédent
+        oldest_ts = int(rows[0][0])
+        if oldest_ts <= 0 or oldest_ts == start:
+            break  # on ne peut plus reculer
+        # On recule l'end à la veille du plus vieux ts du bloc
+        end = oldest_ts - 1
+        scanned_days += window_days
+
+    # Sanity fallback
+    if all_min == float("inf"):
+        all_min = 0.0
+    return all_min, all_max, last_close, ts_min, ts_max
+
+
+def historical_position_label(last_price: float, pmin: float, pmax: float) -> tuple[float, str]:
+    """
+    Retourne (ratio, label) où ratio = (last - min) / (max - min) ∈ [0,1], label ∈ {"bas","milieu","haut"}.
+    """
+    if pmax <= pmin:
+        return 0.0, "inconnu"
+    ratio = (last_price - pmin) / (pmax - pmin)
+    if ratio < 0.33:
+        label = "bas de l'historique"
+    elif ratio < 0.66:
+        label = "milieu de l'historique"
+    else:
+        label = "haut de l'historique"
+    return ratio, label
