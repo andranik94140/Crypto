@@ -112,6 +112,60 @@ async def get_volume_1h_change(client: httpx.AsyncClient, symbol: str) -> tuple[
 
     return vol_1h_ago, vol_last, vol_delta_pct, notional_1h_ago, notional_last, notional_delta_pct
 
+
+async def get_liquidation_stats(client: httpx.AsyncClient, symbol: str) -> tuple[float, float]:
+    """Aggregate long/short liquidation volume over ~1h via Bybit WebSocket."""
+
+    import asyncio
+    import time
+    try:
+        from pybit.unified_trading import WebSocket
+    except Exception:
+        # pybit not installed -> no data
+        return 0.0, 0.0
+
+    cutoff = int(time.time() * 1000) - 60 * 60 * 1000
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[tuple[float, float]] = loop.create_future()
+
+    ws = WebSocket(channel_type="linear")
+
+    def _handler(message: dict) -> None:
+        data = message.get("data")
+        if not data or future.done():
+            return
+        items = data if isinstance(data, list) else [data]
+        long_vol = 0.0
+        short_vol = 0.0
+        for it in items:
+            try:
+                ts = int(it.get("updatedTime") or it.get("time") or it.get("ts") or 0)
+                if ts < cutoff:
+                    continue
+                qty = float(it.get("qty") or it.get("size") or 0.0)
+                side = str(it.get("side") or "").lower()
+                if side == "sell":
+                    long_vol += qty
+                elif side == "buy":
+                    short_vol += qty
+            except Exception:
+                continue
+        future.set_result((long_vol, short_vol))
+
+    ws.all_liquidation_stream(symbol, _handler)
+
+    try:
+        long_vol, short_vol = await asyncio.wait_for(future, timeout=5.0)
+    except asyncio.TimeoutError:
+        long_vol = short_vol = 0.0
+    finally:
+        try:
+            ws.exit()
+        except Exception:
+            pass
+
+    return long_vol, short_vol
+
 # ===== Funding rate (actuel) =====
 async def get_current_funding_rate(client: httpx.AsyncClient, symbol: str) -> float:
     """

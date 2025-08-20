@@ -20,7 +20,12 @@ def calc_risk_score(pump: bool, oi_delta: bool, divergence: bool, volatility: fl
     return 0.7 * signal_score + 0.3 * vol_score
 
 
-def calc_short_score(funding_rate: float, price_position: float, oi_delta_pct: float) -> float:
+def calc_short_score(
+    funding_rate: float,
+    price_position: float,
+    oi_delta_pct: float,
+    short_liq_ratio: float = 0.0,
+) -> float:
     """Return 0..1 score indicating short opportunity strength.
 
     Parameters
@@ -40,6 +45,10 @@ def calc_short_score(funding_rate: float, price_position: float, oi_delta_pct: f
         Percentage change in open interest over the last hour. A negative change
         indicates positions are closing which can strengthen the short bias.
 
+    short_liq_ratio: float, optional
+        Ratio of short liquidation volume over total liquidations for roughly
+        the last hour. Values outside ``[0, 1]`` are clipped.
+
     Returns
     -------
     float
@@ -56,5 +65,8 @@ def calc_short_score(funding_rate: float, price_position: float, oi_delta_pct: f
     # Open interest score: falling OI up to -5% over 1h scales 0..1
     oi_score = min(max(-oi_delta_pct / 5.0, 0.0), 1.0)
 
-    return 0.5 * funding_score + 0.3 * price_score + 0.2 * oi_score
+    liq_score = min(max(short_liq_ratio, 0.0), 1.0)
+
+    score = 0.5 * funding_score + 0.3 * price_score + 0.2 * oi_score + 0.2 * liq_score
+    return min(score, 1.0)
 
