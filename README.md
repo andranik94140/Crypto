@@ -9,10 +9,20 @@
 - Sends a Telegram message only when score exceeds `RISK_THRESHOLD`.
 - Single user, no database, in-memory state.
 - Provides a `/short SYMBOL` command that returns a 0..1 score for shorting
-  based on funding rate, price position and open-interest trend.
+  based on funding rate, price position, open-interest trend and recent
+  liquidation imbalance.
 
 - Alerts are sent only when the short score exceeds `0.50` for clearer signals.
 - Alerts include this short score for quick assessment.
+
+### Liquidation data
+
+The short-scoring logic now queries Bybit's `v5/market/liquidation` endpoint to
+approximate the volume of liquidations on each side over the last hour. The
+ratio of short liquidations over total liquidations slightly increases the score
+when shorts are being squeezed. This endpoint can occasionally lag or miss
+events; treat the derived ratio as an indicative signal rather than a precise
+measure.
 
 
 
