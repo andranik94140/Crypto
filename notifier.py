@@ -1,14 +1,11 @@
-"""Telegram notification helper."""
+"""Telegram notification helper based on Aiogram (v3)."""
 import logging
+from aiogram import Bot
 
-import httpx
 
-
-async def send_telegram(client: httpx.AsyncClient, token: str, chat_id: int, text: str) -> None:
-    """Send *text* to *chat_id* using Bot *token*."""
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+async def send_telegram(bot: Bot, chat_id: int | str, text: str) -> None:
+    """Envoie *text* à *chat_id* via le *bot* Aiogram."""
     try:
-        resp = await client.post(url, json={"chat_id": chat_id, "text": text})
-        resp.raise_for_status()
-    except Exception as exc:  # pragma: no cover - network issues
+        await bot.send_message(chat_id=chat_id, text=text)
+    except Exception as exc:  # pragma: no cover - réseau / API
         logging.warning("telegram send failed: %s", exc)

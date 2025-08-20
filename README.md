@@ -1,7 +1,5 @@
 # Bybit Risk Agent
 
-Asynchronous Python 3.11+ agent that polls Bybit USDT markets and sends Telegram alerts
-when risk signals are detected.
 
 ## Features
 
@@ -10,6 +8,7 @@ when risk signals are detected.
 - Aggregates signals with recent volatility into a 0..1 risk score.
 - Sends a Telegram message only when score exceeds `RISK_THRESHOLD`.
 - Single user, no database, in-memory state.
+
 
 ## Configuration
 
