@@ -17,6 +17,8 @@ from aiogram.types import Message
 from config import load_config, Config
 import notifier
 import bybit_api
+import short_agent
+from risk import calc_short_score
 
 # ---- Logging ----
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -125,6 +127,7 @@ async def handle_alert(
         not_trend = ""
     
     # ---- Funding rate (actuel)
+    raw_funding = 0.0
     try:
         raw_funding = await bybit_api.get_current_funding_rate(http, symbol)
         # Bybit renvoie une fraction (ex: 0.0034 => 0.34%)
@@ -137,6 +140,7 @@ async def handle_alert(
 
 
     # ---- Position dans l'historique (1D all-time scan)
+    ratio = 0.0
     try:
         pmin, pmax, plast, ts_min, ts_max = await bybit_api.get_alltime_range(http, symbol)
         ratio, label = bybit_api.historical_position_label(plast, pmin, pmax)
@@ -157,6 +161,8 @@ async def handle_alert(
             logging.info("%s alert ignored: OI not confirming (%+.2f%%)", symbol, oi_delta_pct)
             return
 
+    short_score = calc_short_score(raw_funding, ratio, oi_delta_pct)
+
     emoji = "📈" if direction == "up" else "📉"
     message_type = "PUMP" if direction == "up" else "DUMP"
 
@@ -167,6 +173,7 @@ async def handle_alert(
         f"{vol_trend} — 5m: <code>{vol_1h:.0f}</code> → now: <code>{vol_last:.0f}</code>\n"
         f"{not_trend}\n"
         f"Funding: <b>{funding_str}</b>  |  Position historique: <b>{pos_pct:.1f}%</b> ({label})\n"
+        f"Score short: <b>{short_score:.2f}</b>\n"
         f"<a href=\"{coinglass_url}\">🔗 Coinglass</a> | "
         f"<a href=\"{exchange_url}\">🔗 Bybit</a>"
     )
@@ -306,6 +313,21 @@ def register_commands(dp: Dispatcher, cfg: Config):
             f"• tracked symbols: {len({k for k in price_data.keys() if price_data[k]})}\n"
             f"• cooldown: {cfg.cooldown_sec}s\n"
         )
+
+    @dp.message(Command("short"))
+    async def cmd_short(message: Message):
+        if not is_authorized(message.from_user.id, cfg):
+            await message.answer("🚫 Accès refusé.")
+            return
+        parts = message.text.split()
+        if len(parts) < 2:
+            await message.answer("Usage: /short SYMBOL")
+            return
+        symbol = parts[1].upper()
+        timeout = httpx.Timeout(10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            score = await short_agent.evaluate_short_symbol(client, symbol)
+        await message.answer(f"Score short {symbol}: {score:.2f}")
 
 # ---- main ----
 async def main():
