@@ -163,6 +163,12 @@ async def handle_alert(
 
     short_score = calc_short_score(raw_funding, ratio, oi_delta_pct)
 
+    if short_score <= 0.50:
+        logging.info(
+            "%s alert ignored: short score %.2f <= 0.50", symbol, short_score
+        )
+        return
+
     emoji = "📈" if direction == "up" else "📉"
     message_type = "PUMP" if direction == "up" else "DUMP"
 

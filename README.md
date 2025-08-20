@@ -10,7 +10,10 @@
 - Single user, no database, in-memory state.
 - Provides a `/short SYMBOL` command that returns a 0..1 score for shorting
   based on funding rate, price position and open-interest trend.
+
+- Alerts are sent only when the short score exceeds `0.50` for clearer signals.
 - Alerts include this short score for quick assessment.
+
 
 
 ## Configuration
