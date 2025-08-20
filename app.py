@@ -151,6 +151,16 @@ async def handle_alert(
         pos_pct = 0.0
         label = "inconnu"
         logging.warning("all-time range failed for %s: %s", symbol, e)
+
+    # ---- Liquidations (≈1h)
+    try:
+        long_liq, short_liq = await bybit_api.get_liquidation_stats(http, symbol)
+        liq_total = long_liq + short_liq
+        short_liq_ratio = short_liq / liq_total if liq_total else 0.0
+    except Exception as e:
+        long_liq = short_liq = 0.0
+        short_liq_ratio = 0.0
+        logging.warning("liquidation fetch failed for %s: %s", symbol, e)
     
     
 
@@ -161,7 +171,7 @@ async def handle_alert(
             logging.info("%s alert ignored: OI not confirming (%+.2f%%)", symbol, oi_delta_pct)
             return
 
-    short_score = calc_short_score(raw_funding, ratio, oi_delta_pct)
+    short_score = calc_short_score(raw_funding, ratio, oi_delta_pct, short_liq_ratio)
 
     if short_score <= 0.50:
         logging.info(
