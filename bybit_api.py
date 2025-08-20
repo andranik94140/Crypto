@@ -1,6 +1,8 @@
 from __future__ import annotations
 import time
-from typing import List, Tuple
+import threading
+from collections import defaultdict, deque
+from typing import List, Tuple, Deque, Dict, Set, Any
 
 import httpx
 
@@ -135,37 +137,137 @@ async def get_volume_1h_change(
     return vol_1h_ago, vol_last, vol_delta_pct, notional_1h_ago, notional_last, notional_delta_pct
 
 
-# ===== Liquidations ≈1h (HTTP) =====
-async def get_liquidation_stats(client: httpx.AsyncClient, symbol: str) -> Tuple[float, float]:
-    """Retourne les volumes de liquidations long et short sur ~1h (somme des qty)."""
-    params = {
-        "category": "linear",
-        "symbol": symbol,
-        "limit": 200,
-    }
-    r = await client.get(f"{BASE}/v5/market/liquidation", params=params)
-    r.raise_for_status()
-    data = r.json() or {}
-    rows = (data.get("result") or {}).get("list") or []
+# =========================
+# Liquidations via WebSocket (pybit)
+# =========================
 
-    cutoff = int(time.time() * 1000) - 60 * 60 * 1000
-    long_vol = 0.0
-    short_vol = 0.0
-    for row in rows:
-        try:
-            ts = int(row.get("time") or row.get("updatedTime") or row.get("ts") or 0)
+class _LiqCache:
+    """Agrège les liquidations par symbole sur une fenêtre glissante."""
+    def __init__(self, window_sec: int = 3600):
+        self.window_sec = window_sec
+        self.lock = threading.Lock()
+        self.by_symbol: Dict[str, Deque[Tuple[int, str, float]]] = defaultdict(deque)
+
+    def add(self, symbol: str, ts_ms: int, side: str, qty: float) -> None:
+        if not symbol or qty <= 0:
+            return
+        now_ms = int(time.time() * 1000)
+        cutoff = now_ms - self.window_sec * 1000
+        dq = self.by_symbol[symbol]
+        dq.append((ts_ms, side, qty))
+        # prune
+        while dq and dq[0][0] < cutoff:
+            dq.popleft()
+
+    def stats_last_hour(self, symbol: str) -> Tuple[float, float]:
+        """Retourne (longs_liquidés_qty, shorts_liquidés_qty) sur ~1h."""
+        now_ms = int(time.time() * 1000)
+        cutoff = now_ms - self.window_sec * 1000
+        long_vol = 0.0
+        short_vol = 0.0
+        dq = self.by_symbol.get(symbol, deque())
+        for ts, side, qty in dq:
             if ts < cutoff:
                 continue
-            qty = float(row.get("qty") or row.get("size") or 0.0)
-            side = str(row.get("side") or "").lower()
-            # convention: si side == "sell", ce sont des longs liquidés
-            if side == "sell":
+            side_l = (side or "").lower()
+            # Bybit: sell => longs liquidés, buy => shorts liquidés
+            if side_l == "sell":
                 long_vol += qty
-            elif side == "buy":
+            elif side_l == "buy":
                 short_vol += qty
+        return long_vol, short_vol
+
+
+_liq_cache = _LiqCache(window_sec=3600)
+_ws = None
+_ws_lock = threading.Lock()
+_subscribed: Set[str] = set()
+_testnet = False  # modifiable via set_bybit_testnet(True)
+
+
+def set_bybit_testnet(flag: bool) -> None:
+    """Permet de basculer en testnet AVANT de démarrer le WS."""
+    global _testnet
+    _testnet = bool(flag)
+
+
+def _ensure_ws_started() -> None:
+    """Démarre le WebSocket (pybit) une seule fois."""
+    global _ws
+    if _ws is not None:
+        return
+    with _ws_lock:
+        if _ws is not None:
+            return
+        from pybit.unified_trading import WebSocket
+        _ws = WebSocket(
+            testnet=_testnet,
+            channel_type="linear",
+        )
+
+
+def _ws_handler(message: Dict[str, Any]) -> None:
+    """
+    Handler générique pour all_liquidation_stream.
+    Exemple de payload:
+    {
+      "topic":"liquidation",
+      "data":[{"symbol":"ROSEUSDT","side":"Buy","qty":"123","updatedTime":"171..."}]
+    }
+    """
+    data = message.get("data")
+    if not data:
+        return
+    items = data if isinstance(data, list) else [data]
+    now_fallback = int(time.time() * 1000)
+
+    for it in items:
+        try:
+            sym = str(it.get("symbol") or it.get("s") or "")
+            side = str(it.get("side") or it.get("S") or "")
+            qty = float(it.get("qty") or it.get("size") or it.get("q") or 0.0)
+            ts = int(it.get("updatedTime") or it.get("time") or it.get("T") or now_fallback)
         except Exception:
             continue
-    return long_vol, short_vol
+        if not sym:
+            continue
+        with _liq_cache.lock:
+            _liq_cache.add(sym, ts, side, qty)
+
+
+def _subscribe_symbol(symbol: str) -> None:
+    """S'abonne au flux de liquidation pour un symbole si pas déjà abonné."""
+    if not symbol:
+        return
+    _ensure_ws_started()
+    global _ws
+    if symbol in _subscribed:
+        return
+    with _ws_lock:
+        if symbol in _subscribed:
+            return
+        _ws.liquidation_stream(symbol, _ws_handler)  # pybit gère ses threads
+        _subscribed.add(symbol)
+
+
+# ===== Liquidations ≈1h (WebSocket) =====
+async def get_liquidation_stats(client: httpx.AsyncClient, symbol: str) -> Tuple[float, float]:
+    """
+    Retourne (longs_liquidés_qty, shorts_liquidés_qty) agrégés sur ~1h via WebSocket.
+    Note: au premier appel pour un symbole, l'historique avant abonnement n'existe pas.
+    """
+    _subscribe_symbol(symbol)
+    with _liq_cache.lock:
+        return _liq_cache.stats_last_hour(symbol)
+
+
+# (Facultatif) pré-abonnement de masse pour “chauffer” le cache
+def warm_subscribe_liquidations(symbols: List[str]) -> None:
+    """Permet d'amorcer les abonnements tôt au démarrage de l'app."""
+    if not symbols:
+        return
+    for s in symbols:
+        _subscribe_symbol(s)
 
 
 # ===== Funding rate (actuel) =====

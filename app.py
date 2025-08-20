@@ -173,7 +173,7 @@ async def handle_alert(
 
     short_score = calc_short_score(raw_funding, ratio, oi_delta_pct, short_liq_ratio)
 
-    if short_score <= 0.50:
+    if short_score <= 0.25:
         logging.info(
             "%s alert ignored: short score %.2f <= 0.25", symbol, short_score
         )
