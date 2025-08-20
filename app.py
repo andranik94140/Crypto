@@ -165,7 +165,7 @@ async def handle_alert(
 
     if short_score <= 0.50:
         logging.info(
-            "%s alert ignored: short score %.2f <= 0.50", symbol, short_score
+            "%s alert ignored: short score %.2f <= 0.25", symbol, short_score
         )
         return
 
@@ -175,13 +175,13 @@ async def handle_alert(
     caption = (
         f"{emoji} <b>{message_type}</b> détecté sur <b>{symbol}</b> ({exchange})\n"
         f"Variation sur {cfg.time_window_sec // 60} min : <b>{variation:.2f}%</b>\n"
-        f"{oi_trend} — 1h: <code>{oi_1h:.0f}</code> → now: <code>{oi_last:.0f}</code>\n"
-        f"{vol_trend} — 5m: <code>{vol_1h:.0f}</code> → now: <code>{vol_last:.0f}</code>\n"
-        f"{not_trend}\n"
-        f"Funding: <b>{funding_str}</b>  |  Position historique: <b>{pos_pct:.1f}%</b> ({label})\n"
+        # f"{oi_trend} — 1h: <code>{oi_1h:.0f}</code> → now: <code>{oi_last:.0f}</code>\n"
+        # f"{vol_trend} — 5m: <code>{vol_1h:.0f}</code> → now: <code>{vol_last:.0f}</code>\n"
+        # f"{not_trend}\n"
+        f"Funding: <b>{funding_str}</b>  \nPosition historique: <b>{pos_pct:.1f}%</b> ({label})\n"
         f"Score short: <b>{short_score:.2f}</b>\n"
         f"<a href=\"{coinglass_url}\">🔗 Coinglass</a> | "
-        f"<a href=\"{exchange_url}\">🔗 Bybit</a>"
+        # f"<a href=\"{exchange_url}\">🔗 Bybit</a>"
     )
 
     # envoi à tous les users autorisés
