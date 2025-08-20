@@ -1,7 +1,5 @@
 # Bybit Risk Agent
 
-Asynchronous Python 3.11+ agent that polls Bybit USDT markets and sends Telegram
-alerts when risk signals are detected. Telegram integration uses `aiogram`.
 
 ## Features
 
@@ -10,7 +8,7 @@ alerts when risk signals are detected. Telegram integration uses `aiogram`.
 - Aggregates signals with recent volatility into a 0..1 risk score.
 - Sends a Telegram message only when score exceeds `RISK_THRESHOLD`.
 - Single user, no database, in-memory state.
-- `/start` command replies with current configuration.
+
 
 ## Configuration
 
@@ -26,8 +24,6 @@ TELEGRAM_CHAT_ID = 539549530
 ```bash
 python app.py
 ```
-
-Then open a chat with your bot and send `/start` to see the agent status.
 
 ## Tests
 
