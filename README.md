@@ -17,12 +17,7 @@
 
 ### Liquidation data
 
-The short-scoring logic now queries Bybit's `v5/market/liquidation` endpoint to
-approximate the volume of liquidations on each side over the last hour. The
-ratio of short liquidations over total liquidations slightly increases the score
-when shorts are being squeezed. This endpoint can occasionally lag or miss
-events; treat the derived ratio as an indicative signal rather than a precise
-measure.
+
 
 
 
