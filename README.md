@@ -17,13 +17,7 @@
 
 ### Liquidation data
 
-The short-scoring logic subscribes to Bybit's public `all_liquidation_stream`
-WebSocket channel to approximate the volume of liquidations on each side over
-the last hour. Bybit pushes a batch of recent liquidation events when the stream
-is opened; we aggregate those within the past hour and compute the ratio of
-short liquidations over the total. This stream may occasionally lag or miss
-events, so treat the ratio as an indicative signal rather than a precise
-measure.
+
 
 
 
