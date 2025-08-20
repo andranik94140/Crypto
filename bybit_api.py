@@ -112,6 +112,40 @@ async def get_volume_1h_change(client: httpx.AsyncClient, symbol: str) -> tuple[
 
     return vol_1h_ago, vol_last, vol_delta_pct, notional_1h_ago, notional_last, notional_delta_pct
 
+
+async def get_liquidation_stats(client: httpx.AsyncClient, symbol: str) -> tuple[float, float]:
+    """Return long and short liquidation volumes over roughly the last hour."""
+
+    import time
+
+    params = {
+        "category": "linear",
+        "symbol": symbol,
+        "limit": 200,
+    }
+    r = await client.get(f"{BASE}/v5/market/liquidation", params=params)
+    r.raise_for_status()
+    data = r.json()
+    rows = (data.get("result") or {}).get("list") or []
+
+    cutoff = int(time.time() * 1000) - 60 * 60 * 1000
+    long_vol = 0.0
+    short_vol = 0.0
+    for row in rows:
+        try:
+            ts = int(row.get("time") or row.get("updatedTime") or row.get("ts") or 0)
+            if ts < cutoff:
+                continue
+            qty = float(row.get("qty") or row.get("size") or 0.0)
+            side = str(row.get("side") or "").lower()
+            if side == "sell":
+                long_vol += qty
+            elif side == "buy":
+                short_vol += qty
+        except Exception:
+            continue
+    return long_vol, short_vol
+
 # ===== Funding rate (actuel) =====
 async def get_current_funding_rate(client: httpx.AsyncClient, symbol: str) -> float:
     """

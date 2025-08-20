@@ -15,7 +15,9 @@ def test_calc_risk_score() -> None:
 
 
 def test_calc_short_score() -> None:
-    high = calc_short_score(-0.01, 0.8, -10)
-    low = calc_short_score(0.01, 0.2, 5)
-    assert high == pytest.approx(0.94, rel=1e-3)
-    assert low == pytest.approx(0.06, rel=1e-3)
+    base = calc_short_score(-0.01, 0.8, -10)
+    high_liq = calc_short_score(-0.01, 0.8, -10, 0.8)
+    low = calc_short_score(0.01, 0.2, 5, 0.1)
+    assert base == pytest.approx(0.94, rel=1e-3)
+    assert high_liq == pytest.approx(1.0, rel=1e-3)
+    assert low == pytest.approx(0.08, rel=1e-3)

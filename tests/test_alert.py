@@ -86,6 +86,9 @@ def test_handle_alert_filters_by_short_score(monkeypatch):
     async def fake_get_current_funding_rate(http, symbol):
         return -0.01
 
+    async def fake_get_liquidation_stats(http, symbol):
+        return 10.0, 90.0  # mostly short liquidations
+
     async def fake_get_alltime_range(http, symbol):
         return 1.0, 3.0, 2.8, 0, 0  # price near highs -> high ratio
 
@@ -98,6 +101,7 @@ def test_handle_alert_filters_by_short_score(monkeypatch):
         monkeypatch.setattr(app.bybit_api, "get_oi_1h_change", fake_get_oi_1h_change)
         monkeypatch.setattr(app.bybit_api, "get_volume_1h_change", fake_get_volume_1h_change)
         monkeypatch.setattr(app.bybit_api, "get_current_funding_rate", fake_get_current_funding_rate)
+        monkeypatch.setattr(app.bybit_api, "get_liquidation_stats", fake_get_liquidation_stats)
         monkeypatch.setattr(app.bybit_api, "get_alltime_range", fake_get_alltime_range)
 
         monkeypatch.setattr(app.notifier, "send_text", fake_send_text)
@@ -116,9 +120,13 @@ def test_handle_alert_filters_by_short_score(monkeypatch):
     async def low_alltime(http, symbol):
         return 1.0, 3.0, 1.2, 0, 0  # price near lows -> low ratio
 
+    async def low_liq(http, symbol):
+        return 90.0, 10.0  # mostly long liquidations
+
     async def run_low():
         monkeypatch.setattr(app.bybit_api, "get_current_funding_rate", low_funding)
         monkeypatch.setattr(app.bybit_api, "get_alltime_range", low_alltime)
+        monkeypatch.setattr(app.bybit_api, "get_liquidation_stats", low_liq)
         messages.clear()
         app.last_alert_time = {}
         await app.handle_alert(cfg, bot=None, http=None, symbol="TESTUSDT", variation=10.0, direction="up", exchange="Bybit")
